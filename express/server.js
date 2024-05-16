@@ -1,35 +1,30 @@
+/* eslint-disable prettier/prettier */
+// server.js
 import express from 'express'
-
 import multer from 'multer'
 import sharp from 'sharp'
 import crypto from 'crypto'
-
-import connectDB from './connectDB.js'
+import { db, Table } from './connectDB.js'
 import { uploadFile, deleteFile, getObjectSignedUrl } from './s3.js'
-import Posts  from './models/posts.js'
-import mongoose from "mongoose";
-import * as bodyParser from "express";
 
 const app = express()
-
-
 
 const storage = multer.memoryStorage()
 const upload = multer({ storage: storage })
 
-connectDB()
-
-const generateFileName = (bytes = 32) => crypto.randomBytes(bytes).toString('hex')
+const generateFileName = (bytes = 4) => parseInt(crypto.randomBytes(bytes).toString('hex'), 16)
 
 app.get("/api/posts", async (req, res) => {
+  const params = {
+    TableName: Table,
+  };
+
   try {
-    const posts = await Posts.find().sort({created: -1}).exec();
+    const data = await db.scan(params).promise();
     const postsWithImageUrl = [];
-    for (let post of posts) {
-      const newPost = { ...post._doc }; // Create a new object and copy the properties of the post
-      newPost.imageUrl = await getObjectSignedUrl(newPost.imageName);
-      console.log(newPost.imageUrl);
-      postsWithImageUrl.push(newPost);
+    for (let post of data.Items) {
+      post.imageUrl = await getObjectSignedUrl(post.imageName);
+      postsWithImageUrl.push(post);
     }
     res.send(postsWithImageUrl);
   } catch (e) {
@@ -41,41 +36,55 @@ app.get("/api/posts", async (req, res) => {
 app.post('/api/posts', upload.single('image'), async (req, res) => {
   const file = req.file
   const caption = req.body.caption
-  const imageName = generateFileName()
+  const id = generateFileName()
 
   const fileBuffer = await sharp(file.buffer)
       .resize({ height: 1920, width: 1080, fit: "contain" })
       .toBuffer()
 
-  await uploadFile(fileBuffer, imageName, file.mimetype)
+  await uploadFile(fileBuffer, id.toString(), file.mimetype)
 
-  const post = new Posts({
-    _id: new mongoose.Types.ObjectId(),
-    imageName,
-    caption,
-  });
+  const post = {
+    TableName: Table,
+    Item: {
+      id,
+      imageName: id.toString(),
+      caption,
+    }
+  };
 
-  await post.save();
+  await db.put(post).promise();
 
-  res.status(201).send(post)
+  res.status(201).send(post.Item)
 })
 
-app.delete("/api/posts/:imageName", async (req, res) => {
-  console.log(req.params.imageName);
-  const imageName = req.params.imageName;
-  const post = await Posts.findOne({ imageName: imageName });
-
-  if (!post) {
-    return res.status(404).send({ message: 'Post not found' });
+app.delete("/api/posts/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  
+  if (isNaN(id)) {
+    return res.status(400).send({ message: 'Invalid id' });
   }
+  const params = {
+    TableName: Table,
+    Key: {
+      id: id,
+    }
+  };
 
-  await deleteFile(post.imageName);
-  await post.deleteOne();
+  try {
+    const data = await db.get(params).promise();
+    if (!data.Item) {
+      return res.status(404).send({ message: 'Post not found' });
+    }
 
-  res.send(post);
+    await deleteFile(data.Item.imageName);
+    await db.delete(params).promise();
+
+    res.send(data.Item);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send({ message: 'Server error' });
+  }
 });
-
-
-
 
 app.listen(8080, () => console.log("listening on port 8080"))

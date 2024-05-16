@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import {URL} from 'url'
