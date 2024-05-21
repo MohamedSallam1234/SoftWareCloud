@@ -1,18 +1,17 @@
-import mongoose from 'mongoose';
-import { config } from 'dotenv';
-config();
+/* eslint-disable prettier/prettier */
+import AWS from 'aws-sdk'
 
-const connectDB = async () => {
-    try {
-        await mongoose.connect(process.env.DATABASE_URL);
-        console.log('MongoDB connected...');
-    } catch (err) {
-        console.error(err.message);
-        // Exit process with failure
-        process.exit(1);
-    }
-};
+AWS.config.update({
+    region: "us-east-1",
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+})
 
+const db = new AWS.DynamoDB.DocumentClient()
 
+const Table = 'Plantsgallery'
 
-export default connectDB;
+export {
+    db,
+    Table
+}
